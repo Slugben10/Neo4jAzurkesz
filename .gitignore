@@ -1,0 +1,6 @@
+.venv/
+Neo4jDB/
+jre/
+Prompts/
+.env
+dist/
