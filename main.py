@@ -176,9 +176,9 @@ except ImportError:
 LANGCHAIN_AVAILABLE = False
 try:
     # Import basic components from langchain
-    from langchain.prompts import ChatPromptTemplate
-    from langchain.schema import Document
-    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    from langchain_core.prompts import ChatPromptTemplate
+    from langchain_core.documents import Document
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
     
     # Import directly from neo4j_vector module for compatibility with older versions
     from langchain_community.vectorstores.neo4j_vector import Neo4jVector
@@ -191,7 +191,7 @@ except ImportError:
 # Embeddings imports - will be conditionally imported
 EMBEDDINGS_AVAILABLE = False
 try:
-    from langchain.embeddings import OpenAIEmbeddings
+    from langchain_openai import AzureOpenAIEmbeddings
     EMBEDDINGS_AVAILABLE = True
     log_message("Embedding packages successfully imported")
 except ImportError:
@@ -1156,17 +1156,37 @@ class Neo4jDatabaseManager:
             # Initialize LLM and graph transformer
             llm = None
             try:
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if api_key:
-                    llm = ChatOpenAI(
+                api_key = os.environ.get("AZURE_OPENAI_API_KEY")
+                api_base = os.environ.get("AZURE_OPENAI_ENDPOINT")
+                
+                # Load config to get deployment name
+                config_path = os.path.join(get_app_path(), "config.json")
+                try:
+                    with open(config_path, 'r') as f:
+                        config = json.load(f)
+                except Exception as e:
+                    log_message(f"Error loading config: {str(e)}", True)
+                    config = {}
+                
+                # Get Azure OpenAI configuration
+                model_config = config.get("models", {}).get("azure", {})
+                deployment_name = model_config.get("deployment_name", "gpt-4")
+                api_version = model_config.get("api_version", "2024-08-01-preview")  # Updated to latest version that supports json_schema
+                
+                if api_key and api_base:
+                    from langchain_openai import AzureChatOpenAI
+                    llm = AzureChatOpenAI(
                         temperature=0.2,  # Slightly higher temperature for more creative extraction
-                        model="gpt-4o-mini",
+                        azure_deployment=deployment_name,
+                        openai_api_key=api_key,
+                        azure_endpoint=api_base,
+                        api_version=api_version,
                         max_tokens=4000   # Ensure enough output tokens
                     )
-                    log_message("Using OpenAI GPT-4o-mini for knowledge graph extraction")
+                    log_message("Using Azure OpenAI for knowledge graph extraction")
                 else:
-                    log_message("OpenAI API key not found", True)
-                    raise ValueError("OpenAI API key not available")
+                    log_message("Azure OpenAI API key or endpoint not found", True)
+                    raise ValueError("Azure OpenAI API key or endpoint not available")
             except Exception as e:
                 log_message(f"Error initializing OpenAI LLM: {str(e)}", True)
                 try:
@@ -2785,7 +2805,7 @@ class MessageEditDialog(wx.Dialog):
 class SettingsDialog(wx.Dialog):
     def __init__(self, parent, config):
         super(SettingsDialog, self).__init__(
-            parent, title="Settings", size=(500, 500),
+            parent, title="Settings", size=(500, 600),  # Increased height for new section
             style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER
         )
         
@@ -2802,20 +2822,27 @@ class SettingsDialog(wx.Dialog):
         panel = wx.Panel(self)
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         
+        # Create notebook for tabbed interface
+        notebook = wx.Notebook(panel)
+        
+        # API Keys tab
+        api_keys_panel = wx.Panel(notebook)
+        api_keys_sizer = wx.BoxSizer(wx.VERTICAL)
+        
         # Title
-        title_text = wx.StaticText(panel, label="API Key Configuration")
+        title_text = wx.StaticText(api_keys_panel, label="API Key Configuration")
         font = title_text.GetFont()
         font.SetPointSize(12)
         font.SetWeight(wx.FONTWEIGHT_BOLD)
         title_text.SetFont(font)
-        main_sizer.Add(title_text, 0, wx.ALL, 10)
+        api_keys_sizer.Add(title_text, 0, wx.ALL, 10)
         
         # Description
-        description = wx.StaticText(panel, label="Enter your API keys for the following models:")
-        main_sizer.Add(description, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        description = wx.StaticText(api_keys_panel, label="Enter your API keys for the following models:")
+        api_keys_sizer.Add(description, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         
         # Create a scrolled window for API key inputs
-        scroll_window = wx.ScrolledWindow(panel, style=wx.VSCROLL)
+        scroll_window = wx.ScrolledWindow(api_keys_panel, style=wx.VSCROLL)
         scroll_window.SetScrollRate(0, 10)
         scroll_sizer = wx.BoxSizer(wx.VERTICAL)
         
@@ -2854,7 +2881,48 @@ class SettingsDialog(wx.Dialog):
                 self.api_key_ctrls[model_key] = api_key_ctrl
         
         scroll_window.SetSizer(scroll_sizer)
-        main_sizer.Add(scroll_window, 1, wx.EXPAND | wx.ALL, 10)
+        api_keys_sizer.Add(scroll_window, 1, wx.EXPAND | wx.ALL, 10)
+        api_keys_panel.SetSizer(api_keys_sizer)
+        
+        # System Prompt tab
+        prompt_panel = wx.Panel(notebook)
+        prompt_sizer = wx.BoxSizer(wx.VERTICAL)
+        
+        # Title
+        prompt_title = wx.StaticText(prompt_panel, label="System Prompt Configuration")
+        prompt_title.SetFont(font)  # Reuse font from above
+        prompt_sizer.Add(prompt_title, 0, wx.ALL, 10)
+        
+        # Description
+        prompt_desc = wx.StaticText(prompt_panel, 
+            label="Configure the system prompt used for all interactions.\nThe RAG prompt will automatically be updated with the same base prompt.")
+        prompt_sizer.Add(prompt_desc, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        # System prompt input
+        self.system_prompt_ctrl = wx.TextCtrl(prompt_panel, style=wx.TE_MULTILINE | wx.TE_WORDWRAP)
+        self.system_prompt_ctrl.SetMinSize((-1, 150))  # Set minimum height
+        self.system_prompt_ctrl.SetValue(self.config.get("system_prompt", 
+            "You are a helpful AI research assistant. Your goal is to help researchers write new papers or expand work-in-progress papers based on the provided documents and instructions."))
+        prompt_sizer.Add(self.system_prompt_ctrl, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        
+        # Preview of RAG prompt
+        rag_label = wx.StaticText(prompt_panel, label="Preview of RAG Prompt (automatically updated):")
+        prompt_sizer.Add(rag_label, 0, wx.LEFT | wx.RIGHT | wx.TOP, 10)
+        
+        self.rag_preview = wx.TextCtrl(prompt_panel, style=wx.TE_MULTILINE | wx.TE_READONLY)
+        self.rag_preview.SetMinSize((-1, 100))
+        prompt_sizer.Add(self.rag_preview, 1, wx.EXPAND | wx.ALL, 10)
+        
+        # Bind system prompt changes to update RAG preview
+        self.system_prompt_ctrl.Bind(wx.EVT_TEXT, self.on_system_prompt_change)
+        
+        prompt_panel.SetSizer(prompt_sizer)
+        
+        # Add pages to notebook
+        notebook.AddPage(api_keys_panel, "API Keys")
+        notebook.AddPage(prompt_panel, "System Prompt")
+        
+        main_sizer.Add(notebook, 1, wx.EXPAND | wx.ALL, 10)
         
         # Buttons
         button_sizer = wx.StdDialogButtonSizer()
@@ -2872,7 +2940,16 @@ class SettingsDialog(wx.Dialog):
         panel.SetSizer(main_sizer)
         
         # Set minimum size
-        self.SetMinSize(wx.Size(400, 300))
+        self.SetMinSize(wx.Size(400, 400))
+        
+        # Initial RAG preview update
+        self.on_system_prompt_change(None)
+    
+    def on_system_prompt_change(self, event):
+        """Update the RAG preview when system prompt changes"""
+        system_prompt = self.system_prompt_ctrl.GetValue()
+        rag_suffix = "\nBelow are some relevant passages from documents that might help answer the user's question.\nThe documents are connected in a knowledge graph, which provides additional context about the relationships."
+        self.rag_preview.SetValue(system_prompt + rag_suffix)
     
     def on_save(self, event):
         # Save API keys to environment variables
@@ -2883,6 +2960,19 @@ class SettingsDialog(wx.Dialog):
                 if api_key_env and api_key:
                     os.environ[api_key_env] = api_key
                     log_message(f"Updated API key for {model_key}")
+        
+        # Save system prompt to config
+        system_prompt = self.system_prompt_ctrl.GetValue().strip()
+        if system_prompt:
+            self.config["system_prompt"] = system_prompt
+            # Save config to file
+            config_path = os.path.join(APP_PATH, "config.json")
+            try:
+                with open(config_path, 'w') as f:
+                    json.dump(self.config, indent=2, fp=f)
+                log_message("System prompt saved to config")
+            except Exception as e:
+                log_message(f"Error saving config: {str(e)}", True)
         
         # Create a .env file to store the API keys persistently
         try:
@@ -3302,18 +3392,41 @@ class ResearchAssistantApp(wx.Frame):
     def get_embeddings_provider(self):
         """Initialize and return an embeddings provider"""
         try:
-            from langchain.embeddings import OpenAIEmbeddings
+            from langchain_openai import AzureOpenAIEmbeddings
             from langchain_community.embeddings import FakeEmbeddings
             
-            # Try to use OpenAI embeddings if the API key is available
-            openai_key = os.environ.get("OPENAI_API_KEY", "")
+            # Load config
+            config_path = os.path.join(get_app_path(), "config.json")
+            try:
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+            except Exception as e:
+                log_message(f"Error loading config: {str(e)}", True)
+                config = {}
             
-            if openai_key:
-                log_message("Using OpenAI embeddings")
-                return OpenAIEmbeddings(model="text-embedding-3-small")
+            # Get Azure OpenAI configuration
+            model_config = config.get("models", {}).get("azure")
+            if not model_config:
+                log_message("Azure OpenAI model configuration not found", True)
+                return FakeEmbeddings(size=1536)
+            
+            # Get Azure OpenAI configuration from environment
+            azure_key = os.environ.get(model_config.get("api_key_env", "AZURE_OPENAI_API_KEY"), "")
+            azure_endpoint = os.environ.get(model_config.get("api_base_env", "AZURE_OPENAI_ENDPOINT"), "")
+            api_version = model_config.get("api_version", "2024-02-15-preview")
+            embedding_deployment = model_config.get("embedding_deployment", "text-embedding-3-small")
+            
+            if azure_key and azure_endpoint:
+                log_message("Using Azure OpenAI embeddings")
+                return AzureOpenAIEmbeddings(
+                    azure_endpoint=azure_endpoint,
+                    openai_api_key=azure_key,
+                    azure_deployment=embedding_deployment,
+                    api_version=api_version
+                )
             else:
                 # Use fake embeddings for testing if no API key
-                log_message("Using fake embeddings (no OpenAI API key found)")
+                log_message("Using fake embeddings (no Azure OpenAI API key or endpoint found)")
                 return FakeEmbeddings(size=1536)
         except Exception as e:
             log_message(f"Error initializing embeddings provider: {str(e)}", True)
@@ -4957,7 +5070,7 @@ class ResearchAssistantApp(wx.Frame):
                         doc_context += f"[{filename}]\n{content}\n\n"
                 
                 # Build full prompt
-                system_prompt = self.config.get("system_prompt", "You are a helpful research assistant.")
+                system_prompt = self.config.get("system_prompt", "You are a helpful AI research assistant. Your goal is to help researchers write new papers or expand work-in-progress papers based on the provided documents and instructions.")
                 full_prompt = f"{system_prompt}\n\n{doc_context}User: {user_message}\n\nAssistant: I'll combine information from the documents with my knowledge to give you the most helpful answer."
                 
                 # Initialize streaming response
@@ -5243,9 +5356,12 @@ def create_default_config():
     try:
         default_config = {
             "models": {
-                "openai": {
-                    "name": "OpenAI GPT-4",
-                    "api_key_env": "OPENAI_API_KEY",
+                "azure": {
+                    "name": "Azure OpenAI",
+                    "api_key_env": "AZURE_OPENAI_API_KEY",
+                    "api_base_env": "AZURE_OPENAI_ENDPOINT",
+                    "api_version": "2024-07-18",
+                    "deployment_name": "gpt-4o-mini",
                     "model_name": "gpt-4o-mini"
                 },
                 "anthropic": {
@@ -5259,7 +5375,7 @@ def create_default_config():
                     "model_name": "gemini-2.0-flash"
                 },
             },
-            "default_model": "openai",
+            "default_model": "azure",
             "max_tokens": 8000,
             "system_prompt": "You are a helpful AI research assistant. Your goal is to help researchers write new papers or expand work-in-progress papers based on the provided documents and instructions."
         }
@@ -5295,20 +5411,34 @@ def create_rag_chain(neo4j_manager, llm_client):
         # Import necessary langchain components
         from langchain_core.prompts import ChatPromptTemplate
         from langchain_core.output_parsers import StrOutputParser
+        from langchain_openai import AzureChatOpenAI
         
-        # Create prompt template
-        prompt = ChatPromptTemplate.from_template("""
-        You are a research assistant helping with scholarly papers and documents.
-        Below are some relevant passages from academic documents that might help answer the user's question.
+        # Get system prompt from config
+        config_path = os.path.join(get_app_path(), "config.json")
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+        except Exception as e:
+            log_message(f"Error loading config: {str(e)}", True)
+            config = {}
+        
+        # Get base system prompt
+        system_prompt = config.get("system_prompt", 
+            "You are a helpful AI research assistant. Your goal is to help researchers write new papers or expand work-in-progress papers based on the provided documents and instructions.")
+        
+        # Create prompt template with base prompt plus RAG-specific additions
+        prompt = ChatPromptTemplate.from_template(f"""
+        {system_prompt}
+        Below are some relevant passages from documents that might help answer the user's question.
         The documents are connected in a knowledge graph, which provides additional context about the relationships.
         
         Relevant passages:
-        {context}
+        {{context}}
         
         Knowledge graph relationships:
-        {graph_info}
+        {{graph_info}}
         
-        User's question: {query}
+        User's question: {{query}}
         
         Please provide a comprehensive and accurate response based on the context provided.
         Combine the information from the database with your own knowledge to give the most helpful answer.
@@ -5485,71 +5615,48 @@ class LLMClient:
     def __init__(self, api_key, model_id, model_key=None):
         self.api_key = api_key
         self.model_id = model_id
-        self.model_key = model_key or "openai"  # Default to OpenAI
+        self.model_key = model_key or "azure"  # Default to Azure OpenAI
         self.client = None
+        self.api_version = "2024-07-18"  # Default Azure OpenAI API version
+        
+        # Load config
+        config_path = os.path.join(get_app_path(), "config.json")
+        try:
+            with open(config_path, 'r') as f:
+                self.config = json.load(f)
+        except Exception as e:
+            log_message(f"Error loading config: {str(e)}", True)
+            self.config = {}
+            
         self._initialize_client()
         
     def _initialize_client(self):
         """Initialize the appropriate client based on the model key"""
         try:
-            if self.model_key == "openai":
-                from openai import OpenAI
-                self.client = OpenAI(api_key=self.api_key)
-            elif self.model_key == "anthropic":
-                if check_package_installed("anthropic"):
-                    from anthropic import Anthropic
-                    self.client = Anthropic(api_key=self.api_key)
-                else:
-                    log_message("Anthropic package not installed. Installing required packages...", True)
-                    subprocess.check_call([sys.executable, "-m", "pip", "install", "anthropic"])
-                    log_message("Anthropic package installed successfully. Initializing client...")
-                    from anthropic import Anthropic
-                    self.client = Anthropic(api_key=self.api_key)
-            elif self.model_key == "gemini":
-                # Google package installation requires special handling
-                try:
-                    # First try to import directly
-                    log_message("Attempting to import Google packages...")
-                    import google.generativeai as genai
-                    genai.configure(api_key=self.api_key)
-                    self.client = genai
-                    log_message("Successfully imported Google Generative AI package")
-                except ImportError:
-                    # If import fails, install packages one by one
-                    log_message("Google packages not found or incomplete. Installing required packages...", True)
-                    packages = [
-                        "google-api-python-client",
-                        "google-api-core",
-                        "google-cloud-core",
-                        "google-cloud",
-                        "google-generativeai"
-                    ]
-                    
-                    # Install each package individually and report success/failure
-                    for package in packages:
-                        try:
-                            log_message(f"Installing {package}...")
-                            subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", package])
-                            log_message(f"Successfully installed {package}")
-                        except Exception as e:
-                            log_message(f"Error installing {package}: {str(e)}", True)
-                    
-                    # Force Python to reload modules
-                    log_message("Reloading modules...")
-                    if 'google' in sys.modules:
-                        del sys.modules['google']
-                    if 'google.generativeai' in sys.modules:
-                        del sys.modules['google.generativeai']
-                    
-                    # Try import again after installation
-                    try:
-                        import google.generativeai as genai
-                        genai.configure(api_key=self.api_key)
-                        self.client = genai
-                        log_message("Successfully imported Google Generative AI package after installation")
-                    except ImportError as e:
-                        log_message(f"Failed to import Google packages after installation: {str(e)}", True)
-                        raise ValueError(f"Could not initialize Google Generative AI. Error: {str(e)}")
+            if self.model_key == "azure":
+                from openai import AzureOpenAI
+                # Get model configuration
+                model_config = self.config.get("models", {}).get("azure")
+                if not model_config:
+                    log_message("Azure OpenAI model configuration not found", True)
+                    return None
+                
+                # Get Azure OpenAI configuration from environment
+                api_base = os.environ.get(model_config.get("api_base_env", "AZURE_OPENAI_ENDPOINT"), "")
+                if not api_base:
+                    log_message("Azure OpenAI endpoint not set in environment variables", True)
+                    return None
+                
+                # Use configuration from config.json
+                self.api_version = model_config.get("api_version", self.api_version)
+                self.deployment_name = model_config.get("deployment_name", self.model_id)
+                
+                self.client = AzureOpenAI(
+                    api_key=self.api_key,
+                    api_version=self.api_version,
+                    azure_endpoint=api_base
+                )
+                log_message(f"Initialized Azure OpenAI client with deployment {self.deployment_name} and API version {self.api_version}")
             else:
                 log_message(f"Unsupported model provider: {self.model_key}", True)
                 self.client = None
@@ -5564,21 +5671,25 @@ class LLMClient:
                 return None
                 
             # Create the appropriate model based on the provider
-            if self.model_key == "openai":
+            if self.model_key == "azure":
                 try:
-                    from langchain_openai import ChatOpenAI
-                    return ChatOpenAI(
-                        model=self.model_id,
+                    from langchain_openai import AzureChatOpenAI
+                    return AzureChatOpenAI(
                         openai_api_key=self.api_key,
+                        azure_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT", ""),
+                        azure_deployment=self.deployment_name,
+                        api_version=self.api_version,
                         temperature=0.7
                     )
                 except ImportError:
                     log_message("langchain_openai not installed. Installing required package...", True)
                     subprocess.check_call([sys.executable, "-m", "pip", "install", "langchain_openai"])
-                    from langchain_openai import ChatOpenAI
-                    return ChatOpenAI(
-                        model=self.model_id,
+                    from langchain_openai import AzureChatOpenAI
+                    return AzureChatOpenAI(
                         openai_api_key=self.api_key,
+                        azure_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT", ""),
+                        azure_deployment=self.deployment_name,
+                        api_version=self.api_version,
                         temperature=0.7
                     )
             elif self.model_key == "anthropic":
@@ -5671,10 +5782,10 @@ class LLMClient:
                 raise ValueError("LLM client not initialized")
                 
             # Handle different client types
-            if self.model_key == "openai":
-                # OpenAI streaming
+            if self.model_key == "azure":
+                # Azure OpenAI streaming
                 response = self.client.chat.completions.create(
-                    model=self.model_id,
+                    model=self.deployment_name,
                     messages=[{"role": "user", "content": prompt}],
                     stream=True,
                     max_tokens=4000

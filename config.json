@@ -1,9 +1,13 @@
 {
   "models": {
-    "openai": {
-      "name": "OpenAI GPT-4o-mini",
-      "api_key_env": "OPENAI_API_KEY",
-      "model_name": "gpt-4o-mini"
+    "azure": {
+      "name": "Azure OpenAI",
+      "api_key_env": "AZURE_OPENAI_API_KEY",
+      "api_base_env": "AZURE_OPENAI_ENDPOINT",
+      "api_version": "2024-08-01-preview",
+      "deployment_name": "gpt-4o-mini",
+      "model_name": "gpt-4o-mini",
+      "embedding_deployment": "text-embedding-3-small"
     },
     "anthropic": {
       "name": "Anthropic Claude",
@@ -31,7 +35,7 @@
       "model_name": "deepseek-coder"
     }
   },
-  "default_model": "openai",
+  "default_model": "azure",
   "max_tokens": 8000,
   "system_prompt": "You are a helpful AI research assistant. Your goal is to help researchers write new papers or expand work-in-progress papers based on the provided documents and instructions.",
   "preserve_neo4j_data": true,

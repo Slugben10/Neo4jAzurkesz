@@ -519,9 +519,6 @@ elif sys.platform == 'win32':  # Windows
     
     # Add specific Windows options for wxPython
     pyinstaller_args.append('--hidden-import=wx.msw')
-    # Add console hiding flags for Windows
-    pyinstaller_args.append('--noconsole')
-    pyinstaller_args.append('--windowed')
     
     # Add manifest for proper window handling
     if os.path.exists('app.manifest'):

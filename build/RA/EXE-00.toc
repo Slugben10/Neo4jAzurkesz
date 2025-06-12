@@ -1,8 +1,8 @@
 ('C:\\Users\\szabotu\\Downloads\\neo4japp-main\\neo4japp-main\\build\\RA\\RA.exe',
- False,
+ True,
  False,
  True,
- 'C:\\Users\\szabotu\\Downloads\\neo4japp-main\\neo4japp-main\\.venv\\Lib\\site-packages\\PyInstaller\\bootloader\\images\\icon-windowed.ico',
+ 'C:\\Users\\szabotu\\Downloads\\neo4japp-main\\neo4japp-main\\.venv\\Lib\\site-packages\\PyInstaller\\bootloader\\images\\icon-console.ico',
  None,
  False,
  False,
@@ -77,9 +77,9 @@
  [],
  False,
  False,
- 1748191496,
- [('runw.exe',
-   'C:\\Users\\szabotu\\Downloads\\neo4japp-main\\neo4japp-main\\.venv\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',
+ 1749748888,
+ [('run.exe',
+   'C:\\Users\\szabotu\\Downloads\\neo4japp-main\\neo4japp-main\\.venv\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\run.exe',
    'EXECUTABLE')],
  'C:\\Program '
  'Files\\WindowsApps\\PythonSoftwareFoundation.Python.3.11_3.11.2544.0_x64__qbz5n2kfra8p0\\python311.dll')
