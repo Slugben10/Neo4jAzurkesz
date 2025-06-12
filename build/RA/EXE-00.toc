@@ -77,7 +77,7 @@
  [],
  False,
  False,
- 1749748888,
+ 1749750585,
  [('run.exe',
    'C:\\Users\\szabotu\\Downloads\\neo4japp-main\\neo4japp-main\\.venv\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\run.exe',
    'EXECUTABLE')],

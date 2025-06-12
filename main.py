@@ -2811,12 +2811,16 @@ class SettingsDialog(wx.Dialog):
         
         self.config = config
         self.api_keys = {}
+        self.api_endpoints = {}  # New dict to store endpoints
         
-        # Load existing API keys from environment
+        # Load existing API keys and endpoints from environment
         for model_key, model_config in self.config.get("models", {}).items():
             api_key_env = model_config.get("api_key_env", "")
+            api_base_env = model_config.get("api_base_env", "")  # Get endpoint env var name
             if api_key_env:
                 self.api_keys[model_key] = os.environ.get(api_key_env, "")
+            if api_base_env:
+                self.api_endpoints[model_key] = os.environ.get(api_base_env, "")
         
         # Create main panel and sizer
         panel = wx.Panel(self)
@@ -2838,7 +2842,7 @@ class SettingsDialog(wx.Dialog):
         api_keys_sizer.Add(title_text, 0, wx.ALL, 10)
         
         # Description
-        description = wx.StaticText(api_keys_panel, label="Enter your API keys for the following models:")
+        description = wx.StaticText(api_keys_panel, label="Enter your API keys and endpoints for the following models:")
         api_keys_sizer.Add(description, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
         
         # Create a scrolled window for API key inputs
@@ -2848,6 +2852,7 @@ class SettingsDialog(wx.Dialog):
         
         # Add API key input fields
         self.api_key_ctrls = {}
+        self.api_endpoint_ctrls = {}  # New dict to store endpoint controls
         
         for model_key, model_config in sorted(self.config.get("models", {}).items()):
             if "api_key_env" in model_config:
@@ -2857,22 +2862,45 @@ class SettingsDialog(wx.Dialog):
                 
                 # Model name label
                 model_name = model_config.get("name", model_key)
-                label = wx.StaticText(model_panel, label=f"{model_name} API Key:")
+                label = wx.StaticText(model_panel, label=f"{model_name} Configuration:")
                 model_sizer.Add(label, 0, wx.BOTTOM, 5)
                 
                 # API key input field
+                key_label = wx.StaticText(model_panel, label="API Key:")
+                model_sizer.Add(key_label, 0, wx.BOTTOM, 5)
+                
                 api_key_ctrl = wx.TextCtrl(model_panel, style=wx.TE_PASSWORD)
                 if model_key in self.api_keys:
                     api_key_ctrl.SetValue(self.api_keys[model_key])
                 model_sizer.Add(api_key_ctrl, 0, wx.EXPAND | wx.BOTTOM, 10)
                 
-                # Environment variable name
+                # Environment variable name for API key
                 env_name = model_config.get("api_key_env", "")
                 env_label = wx.StaticText(model_panel, label=f"Environment Variable: {env_name}")
                 font = env_label.GetFont()
                 font.SetPointSize(8)
                 env_label.SetFont(font)
                 model_sizer.Add(env_label, 0, wx.BOTTOM, 15)
+                
+                # Add endpoint input for Azure
+                if model_key == "azure":
+                    endpoint_label = wx.StaticText(model_panel, label="API Endpoint:")
+                    model_sizer.Add(endpoint_label, 0, wx.BOTTOM, 5)
+                    
+                    endpoint_ctrl = wx.TextCtrl(model_panel)
+                    if model_key in self.api_endpoints:
+                        endpoint_ctrl.SetValue(self.api_endpoints[model_key])
+                    endpoint_ctrl.SetHint("https://your-resource-name.openai.azure.com/")
+                    model_sizer.Add(endpoint_ctrl, 0, wx.EXPAND | wx.BOTTOM, 10)
+                    
+                    # Environment variable name for endpoint
+                    endpoint_env_name = model_config.get("api_base_env", "")
+                    endpoint_env_label = wx.StaticText(model_panel, label=f"Environment Variable: {endpoint_env_name}")
+                    endpoint_env_label.SetFont(font)  # Reuse the small font
+                    model_sizer.Add(endpoint_env_label, 0, wx.BOTTOM, 15)
+                    
+                    # Store reference to the endpoint control
+                    self.api_endpoint_ctrls[model_key] = endpoint_ctrl
                 
                 model_panel.SetSizer(model_sizer)
                 scroll_sizer.Add(model_panel, 0, wx.EXPAND | wx.LEFT | wx.RIGHT, 10)
@@ -2890,7 +2918,7 @@ class SettingsDialog(wx.Dialog):
         
         # Title
         prompt_title = wx.StaticText(prompt_panel, label="System Prompt Configuration")
-        prompt_title.SetFont(font)  # Reuse font from above
+        prompt_title.SetFont(font)
         prompt_sizer.Add(prompt_title, 0, wx.ALL, 10)
         
         # Description
@@ -2952,7 +2980,7 @@ class SettingsDialog(wx.Dialog):
         self.rag_preview.SetValue(system_prompt + rag_suffix)
     
     def on_save(self, event):
-        # Save API keys to environment variables
+        # Save API keys and endpoints to environment variables
         for model_key, api_key_ctrl in self.api_key_ctrls.items():
             api_key = api_key_ctrl.GetValue().strip()
             if model_key in self.config.get("models", {}):
@@ -2960,6 +2988,14 @@ class SettingsDialog(wx.Dialog):
                 if api_key_env and api_key:
                     os.environ[api_key_env] = api_key
                     log_message(f"Updated API key for {model_key}")
+                    
+                # Save endpoint for Azure
+                if model_key == "azure" and model_key in self.api_endpoint_ctrls:
+                    endpoint = self.api_endpoint_ctrls[model_key].GetValue().strip()
+                    api_base_env = self.config["models"][model_key].get("api_base_env", "")
+                    if api_base_env and endpoint:
+                        os.environ[api_base_env] = endpoint
+                        log_message(f"Updated API endpoint for {model_key}")
         
         # Save system prompt to config
         system_prompt = self.system_prompt_ctrl.GetValue().strip()
@@ -2974,7 +3010,7 @@ class SettingsDialog(wx.Dialog):
             except Exception as e:
                 log_message(f"Error saving config: {str(e)}", True)
         
-        # Create a .env file to store the API keys persistently
+        # Create a .env file to store the API keys and endpoints persistently
         try:
             env_path = os.path.join(APP_PATH, ".env")
             with open(env_path, 'w') as f:
@@ -2984,10 +3020,17 @@ class SettingsDialog(wx.Dialog):
                         api_key_env = self.config["models"][model_key].get("api_key_env", "")
                         if api_key_env and api_key:
                             f.write(f"{api_key_env}={api_key}\n")
+                        
+                        # Save endpoint for Azure
+                        if model_key == "azure" and model_key in self.api_endpoint_ctrls:
+                            endpoint = self.api_endpoint_ctrls[model_key].GetValue().strip()
+                            api_base_env = self.config["models"][model_key].get("api_base_env", "")
+                            if api_base_env and endpoint:
+                                f.write(f"{api_base_env}={endpoint}\n")
             
-            log_message("API keys saved to .env file")
+            log_message("API keys and endpoints saved to .env file")
         except Exception as e:
-            log_message(f"Error saving API keys to .env file: {str(e)}", True)
+            log_message(f"Error saving API keys and endpoints to .env file: {str(e)}", True)
         
         self.EndModal(wx.ID_OK)
 
