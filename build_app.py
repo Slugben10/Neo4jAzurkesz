@@ -516,7 +516,8 @@ if sys.platform == 'darwin':  # macOS
         pyinstaller_args.append('--icon=app_icon.icns')
 elif sys.platform == 'win32':  # Windows
     print("Building for Windows...")
-    
+    pyinstaller_args.append('--windowed')  # Ensure GUI mode on Windows
+    pyinstaller_args.append('--noconsole')  # Ensure terminal stays closed on Windows
     # Add specific Windows options for wxPython
     pyinstaller_args.append('--hidden-import=wx.msw')
     
