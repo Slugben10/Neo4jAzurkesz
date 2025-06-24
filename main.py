@@ -3963,7 +3963,7 @@ class ResearchAssistantApp(wx.Frame):
             wildcard = "All files (*.*)|*.*|PDF Files (*.pdf)|*.pdf|DOCX Files (*.docx)|*.docx|Text Files (*.txt)|*.txt|Markdown Files (*.md)|*.md"
             dialog = wx.FileDialog(
                 self, message="Choose a file to upload",
-                defaultDir=os.getcwd(),
+                defaultDir=os.path.join(self.base_path, "Documents"),
                 defaultFile="",
                 wildcard=wildcard,
                 style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST | wx.FD_MULTIPLE
